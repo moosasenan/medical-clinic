@@ -8,9 +8,7 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist",
-    "rootDir": "server",
     "types": ["node", "express-session"]
   },
-  "include": ["server/**/*.ts", "shared/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["server/**/*.ts", "shared/**/*.ts", "server/types.d.ts"]
 }
