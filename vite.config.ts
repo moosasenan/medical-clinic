@@ -11,16 +11,20 @@ export default defineConfig({
       '@shared': resolve(__dirname, 'shared')
     }
   },
+  build: {
+    outDir: 'dist/public',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: resolve(__dirname, 'client/src/index.html')
+    }
+  },
   server: {
+    port: 3000,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true
       }
     }
-  },
-  build: {
-    outDir: 'dist/public',
-    emptyOutDir: true
   }
 });
