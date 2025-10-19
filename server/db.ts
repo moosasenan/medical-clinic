@@ -1,87 +1,129 @@
-import Database from 'better-sqlite3';
+import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const dbPath = join(__dirname, 'database.json');
 
-const dbPath = join(__dirname, 'database.sqlite');
-
-export const db = new Database(dbPath);
-
-// تهيئة الجداول
-export function initDatabase() {
-  // جدول المستخدمين
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'user',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // جدول المرضى
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS patients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      age INTEGER NOT NULL,
-      gender TEXT NOT NULL,
-      phone TEXT,
-      address TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // جدول المواعيد
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS appointments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      patient_id INTEGER NOT NULL,
-      doctor_name TEXT NOT NULL,
-      appointment_date DATETIME NOT NULL,
-      status TEXT DEFAULT 'scheduled',
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (patient_id) REFERENCES patients (id)
-    )
-  `);
-
-  // إنشاء مستخدم افتراضي إذا لم يكن موجوداً
-  const userCheck = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-  
-  if (userCheck.count === 0) {
-    const passwordHash = bcrypt.hashSync('admin123', 10);
-    
-    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-      .run('admin', passwordHash, 'admin');
-    
-    console.log('✅ تم إنشاء المستخدم الافتراضي: admin / admin123');
-  }
-
-  // إضافة بيانات تجريبية للمرضى
-  const patientCheck = db.prepare('SELECT COUNT(*) as count FROM patients').get() as { count: number };
-  
-  if (patientCheck.count === 0) {
-    const patients = [
-      ['أحمد محمد', 35, 'ذكر', '0123456789', 'القاهرة - مصر'],
-      ['فاطمة علي', 28, 'أنثى', '0123456790', 'الإسكندرية - مصر'],
-      ['محمد إبراهيم', 45, 'ذكر', '0123456791', 'الجيزة - مصر']
-    ];
-
-    const insertPatient = db.prepare('INSERT INTO patients (name, age, gender, phone, address) VALUES (?, ?, ?, ?, ?)');
-    
-    for (const patient of patients) {
-      insertPatient.run(...patient);
+class JSONDatabase {
+    constructor() {
+        this.data = {
+            users: [],
+            patients: [],
+            appointments: []
+        };
     }
 
-    console.log('✅ تم إضافة بيانات تجريبية للمرضى');
-  }
+    async load() {
+        try {
+            const content = await fs.readFile(dbPath, 'utf-8');
+            this.data = JSON.parse(content);
+        } catch (error) {
+            await this.save();
+        }
+    }
 
-  console.log('✅ تم تهيئة قاعدة البيانات بنجاح');
+    async save() {
+        await fs.writeFile(dbPath, JSON.stringify(this.data, null, 2));
+    }
+
+    // المستخدمين
+    getUserByUsername(username) {
+        return this.data.users.find(user => user.username === username);
+    }
+
+    getUserById(id) {
+        return this.data.users.find(user => user.id === id);
+    }
+
+    async createUser(username, passwordHash, role = 'user') {
+        const user = {
+            id: this.data.users.length + 1,
+            username,
+            password_hash: passwordHash,
+            role,
+            created_at: new Date().toISOString()
+        };
+        this.data.users.push(user);
+        await this.save();
+        return user;
+    }
+
+    // المرضى
+    getAllPatients() {
+        return this.data.patients;
+    }
+
+    getPatientById(id) {
+        return this.data.patients.find(patient => patient.id === id);
+    }
+
+    async createPatient(patientData) {
+        const patient = {
+            id: this.data.patients.length + 1,
+            ...patientData,
+            created_at: new Date().toISOString()
+        };
+        this.data.patients.push(patient);
+        await this.save();
+        return patient;
+    }
+
+    // المواعيد
+    getAllAppointments() {
+        return this.data.appointments.map(appointment => {
+            const patient = this.getPatientById(appointment.patient_id);
+            return {
+                ...appointment,
+                patient_name: patient ? patient.name : 'Unknown'
+            };
+        });
+    }
+
+    async createAppointment(appointmentData) {
+        const appointment = {
+            id: this.data.appointments.length + 1,
+            ...appointmentData,
+            created_at: new Date().toISOString()
+        };
+        this.data.appointments.push(appointment);
+        await this.save();
+        
+        const patient = this.getPatientById(appointment.patient_id);
+        return {
+            ...appointment,
+            patient_name: patient ? patient.name : 'Unknown'
+        };
+    }
 }
 
-initDatabase();
+export const db = new JSONDatabase();
+
+export async function initDatabase() {
+    await db.load();
+    
+    // إنشاء مستخدم افتراضي إذا لم يكن موجوداً
+    if (db.data.users.length === 0) {
+        const passwordHash = await bcrypt.hash('admin123', 10);
+        await db.createUser('admin', passwordHash, 'admin');
+        console.log('✅ تم إنشاء المستخدم الافتراضي: admin / admin123');
+    }
+
+    // بيانات تجريبية للمرضى
+    if (db.data.patients.length === 0) {
+        const samplePatients = [
+            { name: 'أحمد محمد', age: 35, gender: 'ذكر', phone: '0123456789', address: 'القاهرة - مصر' },
+            { name: 'فاطمة علي', age: 28, gender: 'أنثى', phone: '0123456790', address: 'الإسكندرية - مصر' },
+            { name: 'محمد إبراهيم', age: 45, gender: 'ذكر', phone: '0123456791', address: 'الجيزة - مصر' }
+        ];
+
+        for (const patient of samplePatients) {
+            await db.createPatient(patient);
+        }
+        console.log('✅ تم إضافة بيانات تجريبية للمرضى');
+    }
+
+    console.log('✅ تم تهيئة قاعدة البيانات بنجاح');
+}
