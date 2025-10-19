@@ -217,3 +217,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+// 🛠️ الإصلاح: أضف هذا السطر في النهاية
+export const routes = { registerRoutes };
