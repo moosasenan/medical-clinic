@@ -1,0 +1,10 @@
+{
+  "users": [],
+  "patients": [],
+  "appointments": [],
+  "nextIds": {
+    "users": 1,
+    "patients": 1,
+    "appointments": 1
+  }
+}
