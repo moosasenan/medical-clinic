@@ -1,222 +1,133 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
-import session from "express-session";
-import bcrypt from "bcrypt";
-import { storage } from "./storage";
-import {
-  insertUserSchema,
-  insertSpecialtySchema,
-  insertDoctorProfileSchema,
-  insertAppointmentSchema,
-  insertPaymentSchema,
-} from "@shared/schema";
+import express from 'express';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { storage } from './storage.js';
 
-// تعريف نوع الجلسة (Session) لتفادي أخطاء TypeScript
-declare module "express-session" {
-  interface SessionData {
-    userId?: string;
+const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Middleware للمصادقة
+export const authenticateToken = (req: any, res: any, next: any) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token مطلوب' });
   }
-}
 
-declare module "express-serve-static-core" {
-  interface Request {
-    session: session.Session & Partial<session.SessionData>;
-  }
-}
-
-const SALT_ROUNDS = 10;
-
-export async function registerRoutes(app: Express): Promise<Server> {
-  // ===== AUTHENTICATION =====
-
-  // Register
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const userData = insertUserSchema.parse(req.body);
-
-      const existingUser = await storage.getUserByEmail(userData.email);
-      if (existingUser) {
-        return res.status(400).json({ message: "Email already registered" });
-      }
-
-      const hashedPassword = await bcrypt.hash(userData.password, SALT_ROUNDS);
-
-      const user = await storage.createUser({
-        ...userData,
-        password: hashedPassword,
-      });
-
-      req.session.userId = user.id;
-
-      const { password, ...userWithoutPassword } = user;
-      res.status(201).json(userWithoutPassword);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message || "Registration failed" });
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ error: 'Token غير صالح' });
     }
+    req.user = user;
+    next();
   });
+};
 
-  // Login
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { email, password } = req.body;
+// تسجيل الدخول
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-      if (!email || !password) {
-        return res.status(400).json({ message: "Email and password required" });
-      }
-
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      const validPassword = await bcrypt.compare(password, user.password);
-      if (!validPassword) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      req.session.userId = user.id;
-      const { password: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Login failed" });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
     }
-  });
 
-  // Logout
-  app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy((err) => {
-      if (err) return res.status(500).json({ message: "Logout failed" });
-      res.json({ message: "Logged out successfully" });
+    const user = storage.getUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }
     });
-  });
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في الخادم' });
+  }
+});
 
-  // Get current user
-  app.get("/api/auth/me", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
+// تسجيل مستخدم جديد
+router.post('/register', async (req, res) => {
+  try {
+    const { username, password, role = 'user' } = req.body;
 
-      const user = await storage.getUser(req.session.userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-
-      const { password: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to get user" });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
     }
-  });
 
-  // ===== USERS =====
-  app.get("/api/users", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
-
-      const currentUser = await storage.getUser(req.session.userId);
-      if (currentUser?.role !== "admin")
-        return res.status(403).json({ message: "Forbidden" });
-
-      const users = await storage.getAllUsers();
-      const usersWithoutPasswords = users.map(({ password, ...user }) => user);
-      res.json(usersWithoutPasswords);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to get users" });
+    const existingUser = storage.getUserByUsername(username);
+    if (existingUser) {
+      return res.status(400).json({ error: 'اسم المستخدم موجود مسبقاً' });
     }
-  });
 
-  app.patch("/api/users/:id", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = storage.createUser(username, passwordHash, role);
 
-      const currentUser = await storage.getUser(req.session.userId);
-      if (!currentUser)
-        return res.status(404).json({ message: "User not found" });
-
-      if (currentUser.role !== "admin" && currentUser.id !== req.params.id) {
-        return res.status(403).json({ message: "Forbidden" });
+    res.status(201).json({
+      message: 'تم إنشاء المستخدم بنجاح',
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
       }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في الخادم' });
+  }
+});
 
-      const updateData = req.body;
-      if (updateData.password) {
-        updateData.password = await bcrypt.hash(updateData.password, SALT_ROUNDS);
-      }
+// routes للمرضى
+router.get('/patients', authenticateToken, (req, res) => {
+  try {
+    const patients = storage.getAllPatients();
+    res.json(patients);
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في جلب بيانات المرضى' });
+  }
+});
 
-      const user = await storage.updateUser(req.params.id, updateData);
-      if (!user) return res.status(404).json({ message: "User not found" });
+router.post('/patients', authenticateToken, (req, res) => {
+  try {
+    const patient = storage.createPatient(req.body);
+    res.status(201).json(patient);
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في إضافة المريض' });
+  }
+});
 
-      const { password: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to update user" });
-    }
-  });
+// routes للمواعيد
+router.get('/appointments', authenticateToken, (req, res) => {
+  try {
+    const appointments = storage.getAllAppointments();
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في جلب بيانات المواعيد' });
+  }
+});
 
-  // ===== SPECIALTIES =====
-  app.post("/api/specialties", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
+router.post('/appointments', authenticateToken, (req, res) => {
+  try {
+    const appointment = storage.createAppointment(req.body);
+    res.status(201).json(appointment);
+  } catch (error) {
+    res.status(500).json({ error: 'خطأ في إضافة الموعد' });
+  }
+});
 
-      const currentUser = await storage.getUser(req.session.userId);
-      if (currentUser?.role !== "admin")
-        return res.status(403).json({ message: "Forbidden" });
-
-      const specialtyData = insertSpecialtySchema.parse(req.body);
-      const specialty = await storage.createSpecialty(specialtyData);
-      res.status(201).json(specialty);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to create specialty" });
-    }
-  });
-
-  // ===== APPOINTMENTS =====
-  app.get("/api/appointments", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
-
-      const currentUser = await storage.getUser(req.session.userId);
-      if (!currentUser)
-        return res.status(404).json({ message: "User not found" });
-
-      let appointments;
-      if (["admin", "accountant"].includes(currentUser.role)) {
-        appointments = await storage.getAllAppointments();
-      } else if (currentUser.role === "doctor") {
-        appointments = await storage.getAppointmentsByDoctor(currentUser.id);
-      } else {
-        appointments = await storage.getAppointmentsByPatient(currentUser.id);
-      }
-
-      res.json(appointments);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to get appointments" });
-    }
-  });
-
-  // ===== PAYMENTS =====
-  app.post("/api/payments", async (req, res) => {
-    try {
-      if (!req.session.userId)
-        return res.status(401).json({ message: "Not authenticated" });
-
-      const currentUser = await storage.getUser(req.session.userId);
-      if (!["admin", "accountant"].includes(currentUser.role)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-
-      const paymentData = insertPaymentSchema.parse(req.body);
-      const payment = await storage.createPayment(paymentData);
-      res.status(201).json(payment);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to create payment" });
-    }
-  });
-
-  const httpServer = createServer(app);
-  return httpServer;
-}
-
-// 🛠️ الإصلاح: أضف هذا السطر في النهاية
-export const routes = { registerRoutes };
+export default router;
