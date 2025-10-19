@@ -6,10 +6,12 @@ import { type Server } from "http";
 import { fileURLToPath } from "url";
 import { nanoid } from "nanoid";
 
-// دعم dirname في ES modules
+// حل بديل لـ __dirname في ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** سجل موحّد */
+/**
+ * دالة تسجيل موحّدة (تظهر الوقت والمصدر)
+ */
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -22,12 +24,16 @@ export function log(message: string, source = "express") {
 }
 
 /**
- * تشغيل Vite فقط في وضع التطوير (محلياً)
- * لا يتم استدعاؤه في Vercel (بيئة الإنتاج)
+ * إعداد Vite في بيئة التطوير فقط
+ * لا تعمل هذه الدالة في بيئة الإنتاج (Vercel)
  */
 export async function setupVite(app: Express, server: Server) {
-  if (process.env.NODE_ENV !== "development") return;
+  if (process.env.NODE_ENV !== "development") {
+    log("Skipping Vite setup (production mode)");
+    return;
+  }
 
+  // التحميل الديناميكي لتفادي أخطاء Vercel
   const { createServer: createViteServer, createLogger } = await import("vite");
   const viteLogger = createLogger();
 
@@ -45,13 +51,13 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use(vite.middlewares);
 
+  // استبدال index.html في أثناء التطوير
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
       const clientTemplate = path.resolve(__dirname, "../client/index.html");
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
 
-      // إعادة تحميل تلقائي أثناء التطوير
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
@@ -67,7 +73,7 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 /**
- * في الإنتاج: تقديم الملفات المبنية
+ * في بيئة الإنتاج: تقديم الملفات الثابتة من dist/public
  */
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "../dist/public");
@@ -79,6 +85,7 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
+  // fallback لأي مسار غير موجود
   app.use("*", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
