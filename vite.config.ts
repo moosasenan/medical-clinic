@@ -4,10 +4,8 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// دعم __dirname في ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// نحمل الـ Plugins الخاصة بـ Replit فقط إذا كنا في Replit أو التطوير
 async function loadReplitPlugins() {
   if (
     process.env.NODE_ENV !== "production" &&
@@ -15,7 +13,7 @@ async function loadReplitPlugins() {
   ) {
     const [{ cartographer }, { devBanner }] = await Promise.all([
       import("@replit/vite-plugin-cartographer"),
-      import("@replit/vite-plugin-dev-banner"),
+      import("@replit/vite-plugin-dev-banner")
     ]);
 
     return [cartographer(), devBanner()];
@@ -25,36 +23,24 @@ async function loadReplitPlugins() {
 
 export default defineConfig(async () => {
   const replitPlugins = await loadReplitPlugins();
+  const runtimeErrorOverlay = (await import("@replit/vite-plugin-runtime-error-modal")).default;
 
   return {
-    plugins: [
-      react(),
-      ...(await import("@replit/vite-plugin-runtime-error-modal")).default
-        ? [(await import("@replit/vite-plugin-runtime-error-modal")).default()]
-        : [],
-      ...replitPlugins,
-    ],
-
+    plugins: [react(), runtimeErrorOverlay(), ...replitPlugins],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "client", "src"),
         "@shared": path.resolve(__dirname, "shared"),
-        "@assets": path.resolve(__dirname, "attached_assets"),
-      },
+        "@assets": path.resolve(__dirname, "attached_assets")
+      }
     },
-
     root: path.resolve(__dirname, "client"),
-
     build: {
       outDir: path.resolve(__dirname, "dist/public"),
-      emptyOutDir: true,
+      emptyOutDir: true
     },
-
     server: {
-      fs: {
-        strict: true,
-        deny: ["**/.*"],
-      },
-    },
+      fs: { strict: true, deny: ["**/.*"] }
+    }
   };
 });
