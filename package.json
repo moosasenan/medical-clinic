@@ -4,15 +4,21 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "NODE_ENV=development tsx server/index.ts",
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "vite --port 3000",
+    "dev:server": "tsx server/index.ts",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
-    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production node dist/index.js",
-    "check": "tsc",
+    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --external:pg-native",
+    "start": "node dist/index.js",
+    "check": "tsc --noEmit",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    // ... باقي dependencies كما هي
+    // الحزم الحالية تبقى كما هي
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    // باقي devDependencies الحالية
   }
 }
