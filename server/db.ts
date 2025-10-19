@@ -1,35 +1,53 @@
-// @ts-ignore  (تعطيل TypeScript مؤقتاً)
-import postgres from 'postgres';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../shared/schema.js';
+import Database from 'better-sqlite3';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-if (!process.env.DATABASE_URL) {
-  // استخدم قاعدة بيانات وهمية للتطوير
-  console.log("⚠️  Using in-memory database for development");
-  export const db = {
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve([]),
-        orderBy: () => Promise.resolve([])
-      })
-    }),
-    insert: (table: any) => ({
-      values: (data: any) => ({
-        returning: () => Promise.resolve([{ id: '1', ...data }])
-      })
-    }),
-    update: (table: any) => ({
-      set: (data: any) => ({
-        where: () => ({
-          returning: () => Promise.resolve([{ id: '1', ...data }])
-        })
-      })
-    }),
-    delete: (table: any) => ({
-      where: () => Promise.resolve({ rowCount: 1 })
-    })
-  } as any;
-} else {
-  const connection = postgres(process.env.DATABASE_URL);
-  export const db = drizzle(connection, { schema });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const dbPath = join(__dirname, '..', 'database.sqlite');
+
+export const db = new Database(dbPath);
+
+// تهيئة الجداول
+export function initDatabase() {
+  // جدول المستخدمين
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // جدول المرضى
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS patients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      age INTEGER NOT NULL,
+      gender TEXT NOT NULL,
+      phone TEXT,
+      address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // جدول المواعيد
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      doctor_name TEXT NOT NULL,
+      appointment_date DATETIME NOT NULL,
+      status TEXT DEFAULT 'scheduled',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients (id)
+    )
+  `);
 }
+
+initDatabase();
