@@ -1,0 +1,17 @@
+{
+  "name": "medical-clinic",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "node server/seed.js",
+    "start": "node server/index.js",
+    "vercel-build": "npm run build"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "bcrypt": "^5.1.0",
+    "jsonwebtoken": "^9.0.0"
+  }
+}
